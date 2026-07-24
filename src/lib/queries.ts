@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { cacheLife, cacheTag } from "next/cache";
 
 import { db } from "@/db";
@@ -96,6 +97,9 @@ export async function getCompanies(): Promise<CompanySummary[]> {
   cacheTag(FEED_TAG);
   cacheLife("max");
 
+  // Left-joined and grouped rather than a correlated subquery: inside a
+  // subquery the builder emits bare column names, and `id` exists on all three
+  // tables, so Postgres rejects it as ambiguous.
   return db
     .select({
       slug: companies.slug,
@@ -104,13 +108,14 @@ export async function getCompanies(): Promise<CompanySummary[]> {
       tosUrl: companies.tosUrl,
       privacyUrl: companies.privacyUrl,
       lastCheckedAt: companies.lastCheckedAt,
-      publishedChanges: sql<number>`(
-        select count(*)::int from ${changes}
-        join ${documents} on ${documents.id} = ${changes.documentId}
-        where ${documents.companyId} = ${companies.id} and ${changes.published} = true
-      )`,
+      publishedChanges: sql<number>`count(${changes.id}) filter (where ${changes.published})::int`,
     })
     .from(companies)
+    .leftJoin(documents, eq(documents.companyId, companies.id))
+    .leftJoin(changes, eq(changes.documentId, documents.id))
+    // Grouping by the primary key is enough — every other selected column is
+    // functionally dependent on it.
+    .groupBy(companies.id)
     .orderBy(companies.name);
 }
 
@@ -207,8 +212,10 @@ export async function getChange(id: string): Promise<ChangeDetail | null> {
   cacheTag(changeTag(id));
   cacheLife("max");
 
-  const fromSnapshot = sql<Date>`(select ${snapshots.fetchedAt} from ${snapshots} where ${snapshots.id} = ${changes.fromSnapshotId})`;
-  const toSnapshot = sql<Date>`(select ${snapshots.fetchedAt} from ${snapshots} where ${snapshots.id} = ${changes.toSnapshotId})`;
+  // Aliased joins rather than correlated subqueries, for the same reason as
+  // getCompanies: the aliases keep every `id` reference unambiguous.
+  const fromSnapshot = alias(snapshots, "from_snapshot");
+  const toSnapshot = alias(snapshots, "to_snapshot");
 
   const [row] = await db
     .select({
@@ -218,12 +225,14 @@ export async function getChange(id: string): Promise<ChangeDetail | null> {
       cosmetic: changes.cosmetic,
       published: changes.published,
       companyId: companies.id,
-      fromFetchedAt: fromSnapshot,
-      toFetchedAt: toSnapshot,
+      fromFetchedAt: fromSnapshot.fetchedAt,
+      toFetchedAt: toSnapshot.fetchedAt,
     })
     .from(changes)
     .innerJoin(documents, eq(changes.documentId, documents.id))
     .innerJoin(companies, eq(documents.companyId, companies.id))
+    .innerJoin(fromSnapshot, eq(fromSnapshot.id, changes.fromSnapshotId))
+    .innerJoin(toSnapshot, eq(toSnapshot.id, changes.toSnapshotId))
     .where(eq(changes.id, id))
     .limit(1);
 
@@ -236,8 +245,8 @@ export async function getChange(id: string): Promise<ChangeDetail | null> {
     cosmetic: row.cosmetic,
     published: row.published,
     companyId: row.companyId,
-    fromFetchedAt: new Date(row.fromFetchedAt),
-    toFetchedAt: new Date(row.toFetchedAt),
+    fromFetchedAt: row.fromFetchedAt,
+    toFetchedAt: row.toFetchedAt,
   };
 }
 
