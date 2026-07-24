@@ -16,6 +16,8 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/reset.ts",
     "crawl": "tsx scripts/crawl.ts",
+    "inspect": "tsx scripts/inspect-changes.ts",
+    "subscriptions": "tsx scripts/check-subscriptions.ts",
     "e2e": "tsx scripts/e2e-done-check.ts"
   },
   "dependencies": {
