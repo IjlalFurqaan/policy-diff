@@ -1,4 +1,4 @@
-import type { DiffHunk } from "@/lib/crawler/diff";
+import { countWords, type DiffHunk } from "@/lib/crawler/diff";
 import { TAG_LABELS, type ChangeTag } from "@/lib/tags";
 
 import type { SummarizeInput } from "./prompt";
@@ -129,9 +129,6 @@ function describeShape(hunks: DiffHunk[]): {
 
 export function summarizeWithHeuristic(input: SummarizeInput): SummarizerResult {
   const hunks = input.hunks;
-  const addedText = hunks.map((hunk) => hunk.added).join(" ");
-  const removedText = hunks.map((hunk) => hunk.removed).join(" ");
-
   // Topic comes from the passage, not just the edited words: swapping "12" for
   // "36" says nothing on its own, but the sentence around it says retention.
   const topicText = hunks
@@ -171,15 +168,28 @@ export function summarizeWithHeuristic(input: SummarizeInput): SummarizerResult 
       ? `${topic} changed from ${swap.from} to ${swap.to}`
       : buildGenericHeadline(topic, shape, hunks.length);
 
-  const parts: string[] = [];
-  if (removedText.trim()) parts.push(`Removed wording: “${firstSentence(removedText)}”`);
-  if (addedText.trim()) parts.push(`Added wording: “${firstSentence(addedText)}”`);
+  // Quote one passage rather than every fragment glued together: the hunks
+  // come from different parts of the document, so concatenating them invents a
+  // sentence that appears nowhere in either version.
+  const largest = [...hunks].sort(
+    (a, b) => countWords(b.removed) + countWords(b.added) - countWords(a.removed) - countWords(a.added),
+  )[0];
+
+  const quoted: string[] = [];
+  if (largest?.removed) quoted.push(`it removed “${firstSentence(largest.removed)}”`);
+  if (largest?.added) quoted.push(`it added “${firstSentence(largest.added)}”`);
+
+  const documentLabel =
+    input.documentType === "tos" ? "terms of service" : "privacy policy";
+  const others = hunks.length - 1;
+
   const summary = [
-    `${hunks.length} passage${hunks.length === 1 ? "" : "s"} of the ${
-      input.documentType === "tos" ? "terms of service" : "privacy policy"
-    } changed.`,
-    ...parts,
-  ].join(" ");
+    `${hunks.length} passage${hunks.length === 1 ? "" : "s"} of the ${documentLabel} changed.`,
+    quoted.length > 0 ? `In the largest, ${quoted.join(" and ")}.` : "",
+    others > 0 ? `${others} other passage${others === 1 ? "" : "s"} also changed.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const userImpact =
     cleanQuantitySwap && swap
