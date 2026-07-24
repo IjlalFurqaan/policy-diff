@@ -76,34 +76,50 @@ export function stripChrome(root: Document | Element): void {
 }
 
 /**
- * Turns a cleaned DOM into plain text with block boundaries preserved as
- * single newlines, then collapses every whitespace run.
+ * Marks a block boundary. A character that cannot occur in the source text, so
+ * a real boundary is never confused with a newline that the page author simply
+ * typed while indenting their HTML.
+ */
+const BLOCK_SEPARATOR = "\u0000";
+
+/**
+ * Turns a cleaned DOM into plain text, one line per block element.
+ *
+ * Whitespace *inside* a block collapses to single spaces regardless of what it
+ * was in the source — a newline in the HTML is indentation, not structure, so
+ * reformatting the markup must not change the extracted text. Only the block
+ * boundaries inserted here survive as newlines.
  *
  * Case is deliberately left alone: in legal text "Services" and "services" are
  * different things.
  */
 export function domToText(root: Element, doc: Document): string {
   for (const element of Array.from(root.querySelectorAll(BLOCK_TAGS))) {
-    element.parentNode?.insertBefore(doc.createTextNode("\n"), element);
-    element.parentNode?.insertBefore(doc.createTextNode("\n"), element.nextSibling);
+    element.parentNode?.insertBefore(doc.createTextNode(BLOCK_SEPARATOR), element);
+    element.parentNode?.insertBefore(
+      doc.createTextNode(BLOCK_SEPARATOR),
+      element.nextSibling,
+    );
   }
   return normalizeText(root.textContent ?? "");
 }
 
 /**
- * Collapses whitespace: any run of horizontal whitespace becomes one space,
- * any run of blank lines becomes one newline. Nothing else is touched.
+ * Collapses whitespace and turns block separators into newlines.
+ *
+ * Every run of whitespace — spaces, tabs and newlines alike — becomes a single
+ * space, so reindenting the HTML cannot change the result. Only the separators
+ * `domToText` inserted at block boundaries survive, one per line. Nothing else
+ * is touched; in particular case is preserved, because case carries meaning in
+ * legal text.
  */
 export function normalizeText(text: string): string {
   return text
     .normalize("NFC")
-    .replace(/\r\n?/g, "\n")
-    .replace(/[^\S\n]+/g, " ")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .join("\n")
-    .trim();
+    .split(BLOCK_SEPARATOR)
+    .map((block) => block.replace(/\s+/g, " ").trim())
+    .filter((block) => block.length > 0)
+    .join("\n");
 }
 
 /**
