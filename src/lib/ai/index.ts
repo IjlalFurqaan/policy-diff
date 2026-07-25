@@ -12,9 +12,9 @@ export type Summarizer = (input: SummarizeInput) => Promise<SummarizerResult>;
 /**
  * Test double for the end-to-end check on a machine with no API key. Produces
  * a deterministic, high-confidence summary so the publish path can be
- * exercised. Refuses to load in production.
+ * exercised. Refuses to engage in production.
  */
-function useFakeSummarizer(): boolean {
+function fakeSummarizerEnabled(): boolean {
   return (
     process.env.POLICY_DIFF_FAKE_SUMMARIZER === "1" &&
     process.env.NODE_ENV !== "production"
@@ -36,7 +36,7 @@ function fakeSummarize(input: SummarizeInput): SummarizerResult {
 export async function summarizeChange(
   input: SummarizeInput,
 ): Promise<SummarizerResult> {
-  if (useFakeSummarizer()) return fakeSummarize(input);
+  if (fakeSummarizerEnabled()) return fakeSummarize(input);
 
   if (!hasAnthropicKey()) {
     return summarizeWithHeuristic(input);
