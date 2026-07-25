@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { changes, companies, documents, snapshots } from "@/db/schema";
 import { summarizeChange, shouldPublish, type Summarizer } from "@/lib/ai";
+import { notifySubscribers } from "@/lib/notify";
 
 import { diffDocuments } from "./diff";
 import { extractContent } from "./extract";
@@ -33,6 +34,8 @@ export interface DocumentOutcome {
   changeRatio?: number;
   severity?: number;
   summarizer?: string;
+  /** Subscribers emailed about this change. */
+  notified?: number;
 }
 
 export interface CrawlReport {
@@ -80,7 +83,10 @@ export async function runCrawl(options: CrawlOptions = {}): Promise<CrawlReport>
     .from(documents)
     .innerJoin(companies, eq(documents.companyId, companies.id))
     .where(options.documentId ? eq(documents.id, options.documentId) : undefined)
-    .orderBy(asc(sql`${documents.lastCheckedAt} nulls first`))
+    // Never-checked documents sort first, then the least recently checked.
+    // Written as raw SQL because the ordering keyword and the null placement
+    // have to stay in that order — `asc()` around this would emit them swapped.
+    .orderBy(sql`${documents.lastCheckedAt} asc nulls first`)
     .limit(limit);
 
   const outcomes: DocumentOutcome[] = [];
@@ -259,6 +265,17 @@ async function processDocument(
 
   await markChecked(doc, checkedAt);
 
+  // A failed send must not fail the crawl — the change is already stored and
+  // published, and losing it to a Resend outage would be the worse outcome.
+  let notified: number | undefined;
+  if (publish) {
+    try {
+      notified = await notifySubscribers(change.id);
+    } catch (error) {
+      console.error(`[crawl] notifying subscribers of ${change.id} failed:`, error);
+    }
+  }
+
   return {
     ...base,
     status: publish ? "published" : "held-for-review",
@@ -266,6 +283,7 @@ async function processDocument(
     changeRatio: diff.stats.ratio,
     severity: summary.severity,
     summarizer: summary.provider,
+    notified,
     detail: publish ? undefined : `confidence ${summary.confidence}`,
   };
 }
