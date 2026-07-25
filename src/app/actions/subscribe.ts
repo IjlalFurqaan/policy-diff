@@ -6,13 +6,7 @@ import * as z from "zod/v4";
 import { db } from "@/db";
 import { companies, subscriptions } from "@/db/schema";
 import { sendSubscriptionConfirmation } from "@/lib/email";
-
-export interface SubscribeState {
-  status: "idle" | "success" | "error";
-  message: string;
-}
-
-export const initialSubscribeState: SubscribeState = { status: "idle", message: "" };
+import type { SubscribeState } from "@/lib/subscription";
 
 const subscribeSchema = z.object({
   companySlug: z.string().min(1).max(80),

@@ -3,9 +3,10 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 
-import { initialSubscribeState, subscribeToCompany } from "@/app/actions/subscribe";
+import { subscribeToCompany } from "@/app/actions/subscribe";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { initialSubscribeState } from "@/lib/subscription";
 import { cn } from "@/lib/utils";
 
 export function SubscribeForm({
