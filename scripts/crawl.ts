@@ -1,5 +1,6 @@
 import "./_env";
 
+import { closeDb } from "@/db";
 import { runCrawl } from "@/lib/crawler/pipeline";
 
 /**
@@ -25,10 +26,11 @@ async function main() {
   if (report.revalidate.length > 0) {
     console.log(`\nwould revalidate: ${report.revalidate.join(", ")}`);
   }
-  process.exit(0);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(closeDb);

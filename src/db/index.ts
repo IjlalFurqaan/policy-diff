@@ -22,6 +22,17 @@ function resolveDriver(url: string): "neon" | "postgres" {
   return /\.neon\.tech(:|\/|$)/.test(new URL(url).host) ? "neon" : "postgres";
 }
 
+/**
+ * Held so CLI scripts can close the pool and let the process end on its own.
+ * Nothing in the app touches it — serverless functions are torn down for us.
+ */
+let openClient: ReturnType<typeof postgres> | null = null;
+
+export async function closeDb(): Promise<void> {
+  await openClient?.end({ timeout: 5 });
+  openClient = null;
+}
+
 function createDb(): Db {
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -37,16 +48,19 @@ function createDb(): Db {
     }) as unknown as Db;
   }
 
-  return drizzlePg(
-    postgres(url, {
-      // Serverless functions are short-lived and Neon is the production
-      // target; a small pool is plenty for local work and CLI scripts.
-      max: 5,
-      idle_timeout: 20,
-      connect_timeout: 10,
-    }),
-    { schema, casing: "snake_case" },
-  );
+  openClient = postgres(url, {
+    // Small and long-lived on purpose. Production is Neon over HTTP, so this
+    // driver is only ever pointed at a local server — in practice the embedded
+    // PGlite bridge, which executes one query at a time and gets unhappy when
+    // a pool opens and recycles connections underneath it. One stable
+    // connection avoids that entirely and costs nothing, since PGlite would
+    // serialise the queries regardless. Raise DB_POOL_MAX for a real Postgres.
+    max: Number(process.env.DB_POOL_MAX ?? 1),
+    idle_timeout: 0,
+    connect_timeout: 10,
+  });
+
+  return drizzlePg(openClient, { schema, casing: "snake_case" });
 }
 
 // Next dev recompiles modules on every edit; without this each recompile would

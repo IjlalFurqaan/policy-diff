@@ -2,7 +2,7 @@ import "./_env";
 
 import { sql } from "drizzle-orm";
 
-import { db } from "@/db";
+import { closeDb, db } from "@/db";
 import { companies, documents } from "@/db/schema";
 import { SEED_COMPANIES, logoUrlFor } from "@/db/seed-data";
 
@@ -56,10 +56,11 @@ async function main() {
     .from(documents);
 
   console.log(`seeded ${companyCount} companies, ${documentCount} documents`);
-  process.exit(0);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  })
+  .finally(closeDb);
